@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mijia.Core/Mijia.Core.csproj" />
+    <Project Path="src/Mijia.Infrastructure/Mijia.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Mijia.Core.Tests/Mijia.Core.Tests.csproj" />
+  </Folder>
+  <Folder Name="/examples/">
+    <Project Path="examples/Mijia.Core.Usage/Mijia.Core.Usage.csproj" />
+  </Folder>
+</Solution>
