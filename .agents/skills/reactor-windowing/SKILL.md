@@ -1,0 +1,352 @@
+---
+name: reactor-windowing
+description: "Reactor top-level windowing cookbook: WindowSpec, OpenWindow, draggable windows, borderless/tool windows, placement persistence, taskbar visibility, z-order, aspect ratio, SizeToContent, displays, taskbar integration, and owner-window file/folder pickers."
+when_to_invoke:
+  - "open a window"
+  - "secondary window"
+  - "make a window draggable"
+  - "remember window position"
+  - "restore window placement"
+  - "tool palette"
+  - "command palette"
+  - "window aspect ratio"
+  - "borderless window"
+  - "always on top"
+  - "taskbar progress"
+  - "file picker"
+---
+
+# Reactor Windowing
+
+Use this skill when a task involves top-level windows, placement, shell chrome,
+taskbar features, displays, or native pickers.
+
+## Core APIs
+
+```csharp
+var win = ReactorApp.OpenWindow(
+    new WindowSpec { Title = "Settings", Width = 520, Height = 420 },
+    () => new SettingsWindow());
+
+win.Activate();
+win.Close();
+```
+
+`WindowSpec` is immutable startup intent. `ReactorWindow` is the live handle for
+runtime mutators (`SetSize`, `SetPosition`, `SetAspectRatio`, `BeginDragMove`,
+`SavePlacement`, `Update`).
+
+## Size and resize
+
+```csharp
+new WindowSpec
+{
+    ResizeMode = WindowResizeMode.CanMinimize,       // CanResize | NoResize | CanMinimize
+    AspectRatio = 16.0 / 9.0,
+    MinWidth = 480,
+    SizeToContent = WindowSizeToContent.Manual,      // Manual | Width | Height | WidthAndHeight
+};
+
+UseWindow()?.SetAspectRatio(4.0 / 3.0);
+UseWindowAspectRatio(1.0); // scoped; unmount clears
+```
+
+Rules:
+
+- `AspectRatio` cannot combine with `ResizeMode.NoResize`.
+- `AspectRatio` cannot combine with `SizeToContent`.
+- `SizeToContent` ignores maximized windows and may settle one frame after mount.
+
+## Movement, drag, and persistence
+
+```csharp
+new WindowSpec
+{
+    StartPosition = WindowStartPosition.CenterOnCurrent,
+    IsMovableByBackground = true,
+};
+
+var (x, y) = UseWindowPosition();
+var drag = UseWindowDragMove();
+Button("Drag", drag);
+Border(customEditor).Drag(false); // opt out of background drag
+```
+
+Window hooks (`UseWindow`, `UseWindowPosition`, `UseWindowDragMove`, `UseDpi`, `UseWindowState`,
+`UseIsActive`, `UseClosingGuard`, `UseWindowAspectRatio`, …) bind the window whose host renders the
+component, including nested components and virtualized rows, never "the most recently active window".
+In tray flyouts and `ReactorHostControl` embeds they return `null` / their outside-a-window values.
+
+```csharp
+var spec = new WindowSpec { Title = "Shell" }
+    .WithPersistence("shell-main", WindowStartPosition.CenterOnCurrent);
+
+UseWindow()?.SavePlacement();
+```
+
+Persistence requires `PersistPlacement`; use `.WithPersistence(...)` for the
+common case. `PersistenceId` alone is only identity for persistence systems.
+
+Placement goes to an auto-picked store: `ApplicationData.Current.LocalSettings`
+when packaged, else a JSON file under `%LOCALAPPDATA%/<ProcessName>/`. That
+default is keyed on the **process name**, so renaming the exe strands saved
+layouts. Unpackaged apps can opt into a stable publisher/product identity
+before the first `OpenWindow`:
+
+```csharp
+using Microsoft.UI.Reactor.Hosting.Persistence;
+
+ReactorApp.WindowPersistenceStore =
+    new UnpackagedAppDataStore(publisher: "Contoso", product: "TimeTracker");
+```
+
+Opt-in rather than default: the two stores key data differently, so switching
+does not migrate existing layouts. Multiple instances sharing one
+publisher/product are safe — writes are serialized across processes, so one
+window's save cannot drop another's entry. Two windows sharing a
+`PersistenceId` still overwrite each other, by design.
+
+## Z-order, taskbar, and chrome
+
+```csharp
+new WindowSpec
+{
+    ShowInTaskbar = false,
+    ShowInSwitcher = true,
+    Level = WindowLevel.Floating,          // Normal | Floating | AlwaysOnTop
+    Style = WindowStyle.ToolWindow,        // Default | None | ToolWindow
+    CornerStyle = WindowCornerStyle.RoundedSmall,
+};
+```
+
+Notes:
+
+- `Floating` stays above owners and sibling Reactor app windows.
+- `ToolWindow` hides from the taskbar by default unless `ShowInTaskbar` is explicit.
+- `WindowStyle.None` should normally set `IsMovableByBackground = true`.
+- `UseIsCovered()` is a z-order hint, not pixel-accurate occlusion.
+
+## Title bar and backdrop
+
+```csharp
+VStack(
+    TitleBar("My App"),
+    Body());
+```
+
+A `TitleBar(...)` element infers `ExtendsContentIntoTitleBar = true` when the
+spec value is `null`. Explicit `true` or `false` wins.
+
+> **Close-safety caveat (#537):** `ExtendsContentIntoTitleBar = false` with a
+> mounted `TitleBar(...)` is allowed and previously crashed on close
+> (`STATUS_HEAP_CORRUPTION`); Reactor now flips the window back into
+> content-extended mode just before the native close (every close/exit/dispose
+> path) so it is safe. Prefer omitting `TitleBar(...)` when you want the system
+> title bar.
+
+### Title bar icon
+
+```csharp
+ReactorApp.Run<App>("My App", icon: WindowIcon.FromPath("Assets/AppIcon.ico"));
+
+TitleBar("My App");            // inherits the window icon -- nothing to declare
+TitleBar("My App").NoIcon();   // opt out, for a deliberately bare title bar
+```
+
+A `TitleBar(...)` with no `.Icon(...)` inherits the **window's** icon:
+`WindowSpec.Icon` if declared, otherwise the `Assets\AppIcon.ico` convention
+beside the app. Do not restate the app icon on the title bar — that is the
+default. Use `.Icon(...)` only to show a *different* mark there.
+
+Not inherited: an icon that exists only as an executable PE resource
+(`<ApplicationIcon>`), because that stage yields a raw `HICON` with no path and a
+XAML `IconSource` needs an image source; and an embedded window
+(`WindowSpec.Embed`), which never receives a window icon at all.
+
+### Icon sources
+
+```csharp
+WindowIcon.FromPath("Assets/AppIcon.ico");          // file beside the app
+WindowIcon.FromResource("ms-appx:///Assets/A.ico"); // packaged resource
+WindowIcon.FromBytes(icoOrPngBytes);                // encoded data in memory
+WindowIcon.FromRgba(pixels, 16, 16);                // raw RGBA8, top-down
+```
+
+Not every surface takes every kind, because they need different primitives:
+
+| Surface | `FromPath` | `FromResource` | `FromBytes` / `FromRgba` |
+| --- | --- | --- | --- |
+| Window caption / Alt-Tab | yes | yes | no |
+| Tray icon, taskbar overlay, thumbnail toolbar | yes | no | yes |
+| Jump-list entry | unpackaged only | packaged only | no |
+
+The three shell surfaces need a raw `HICON` (`LoadImageW` on a file, or
+`CreateIconFromResourceEx` on in-memory data), neither of which reads an
+`ms-appx:` URI. Jump lists need a `Uri`. `AppWindow.SetIcon` needs a filesystem
+path. An unusable source is skipped with a diagnostic, never thrown — on the
+window that means falling through to `Assets\AppIcon.ico` or the PE icon, so a
+binary `icon:` leaves the window no barer than declaring none.
+
+Reach for the binary factories when the icon is an embedded resource, a
+download, or drawn at runtime: they avoid writing a temporary file. The bytes
+are copied at construction and held for the `WindowIcon`'s lifetime.
+
+### Tall title bar
+
+```csharp
+TitleBar("My App").WithNavigation(nav).PaneToggleButtonVisible(true).Tall();
+new WindowSpec { ExtendsContentIntoTitleBar = true, TitleBarHeight = WindowTitleBarHeight.Tall };
+```
+
+`.Tall()` / `.HeightOption(WindowTitleBarHeight)` (`Standard` / `Tall` /
+`Collapsed`) is the layout for a title bar hosting a back button or pane toggle.
+It sets both the system caption (`AppWindow.TitleBar.PreferredHeightOption`) and
+the WinUI title-bar control's own height — the control does not follow the
+caption, so setting one alone leaves them disagreeing. An explicit `.Height(...)`
+wins over the implied 48; `WindowSpec.TitleBarHeight` wins over the element.
+
+> Requires a content-extended window — the native setter throws
+> `ERROR_INVALID_STATE` otherwise. Reactor applies it after its own
+> content-extension flip and warns instead of throwing, so prefer this over
+> setting `PreferredHeightOption` from a `UseEffect`.
+
+### Caption button theme
+
+```csharp
+TitleBar("My App").PreferredTheme(isDark ? WindowTitleBarTheme.Dark : WindowTitleBarTheme.Light);
+new WindowSpec { TitleBarTheme = WindowTitleBarTheme.Dark };
+```
+
+WinUI does not carry an element's `RequestedTheme` to the system caption buttons
+(min/max/close), so a root themed opposite to the system keeps system-themed buttons.
+`.PreferredTheme(WindowTitleBarTheme)` (`Legacy` / `UseDefaultAppMode` / `Light` /
+`Dark`) writes `AppWindow.TitleBar.PreferredTheme` on mount and on change — no
+`UseEffect`. Opt-in: with nothing declared Reactor never writes the property, and
+removing a declaration restores the value the caption had before Reactor first applied one.
+`WindowSpec.TitleBarTheme` wins over the element. Unlike the height, it does not
+need a content-extended window.
+
+### Custom title-bar content and drag regions
+
+`TitleBar(...)` accepts custom `Content`. Interactive controls are excluded from
+the drag region automatically (WinApp SDK ≥ 2.1.3). Override per element with
+`.IsDragRegion(false)` (force clickable) or `.IsDragRegion(true)` (force draggable),
+and add `.AutoRefreshDragRegions()` when the content changes across renders:
+
+```csharp
+(TitleBar("Gallery") with
+{
+    Content = HStack(8,
+        AutoSuggestBox("", _ => {}).Width(200),
+        Button(Icon(FontIcon("\uE713", fontSize: 16)), OnSettings)
+            .AutomationName("Settings").IsDragRegion(false)),
+}).AutoRefreshDragRegions();
+```
+
+```csharp
+VStack(...).Backdrop(BackdropKind.Mica);
+new WindowSpec { Backdrop = BackdropChoice.Of(BackdropKind.DesktopAcrylic) };
+```
+
+`BackdropKind.Transparent` falls back to no backdrop when unsupported by the
+referenced Windows App SDK.
+
+## Taskbar, displays, and pickers
+
+```csharp
+var taskbar = UseWindow()!.TaskbarItem;
+taskbar.Description = "Exporting";
+taskbar.Progress.State = TaskbarProgressState.Normal;
+taskbar.Progress.Value = 0.25;
+
+var displays = UseDisplays();
+var nearest = ReactorDisplay.NearestTo(window.Position.X, window.Position.Y);
+
+// Pickers are not hooks: call them directly from UI-thread event handlers, never during Render.
+// using Microsoft.Windows.Storage.Pickers;  (not Windows.Storage.Pickers: both define PickerLocationId)
+return VStack(
+    Button("Open", async () => { var file = await PickFileAsync(new(FileTypeFilter: [".txt"])); if (file is null) return; var text = await File.ReadAllTextAsync(file.Path); }),
+    Button("Open multiple", async () => { var files = await PickMultipleFilesAsync(new() { FileTypeChoices = [new("Notes", [".txt", ".md"])] }); }),
+    Button("Folder", async () => { var folder = await PickFolderAsync(new()); }),
+    Button("Folders", async () => { var folders = await PickMultipleFoldersAsync(new()); }),
+    Button("Save", async () => { var target = await PickSaveFileAsync(new(
+        [new("Text", [".txt"]), new("Markdown", [".md"])], SuggestedFileName: "report"));
+        if (target is not null) await File.WriteAllTextAsync(target.Path, "body"); }));
+```
+
+`PickFileAsync` / `PickMultipleFilesAsync` / `PickFolderAsync` / `PickMultipleFoldersAsync` / `PickSaveFileAsync`
+return `PickFileResult` / `PickFolderResult` (`Microsoft.Windows.Storage.Pickers`, exposing `.Path`); cancellation
+returns `null` or an empty list. The owner is the window whose host renders the component (not whichever window is
+active), the dialog works in elevated apps, and the call throws `InvalidOperationException` once the component has
+unmounted or its window has closed. Inside `ReactorHostControl` the owner is the window the control is loaded in
+when the method is called; an unloaded control throws. `FileTypeChoices` is an ordered
+`IReadOnlyList<FileTypeChoice>` whose order sets the default entry; labels
+must be unique. Options also take `Title`, `SuggestedFolder`, `SuggestedStartFolder`, `InitialFileTypeIndex`, and
+(save) `DefaultFileExtension` / `ShowOverwritePrompt`. There is no arbitrary HWND parameter.
+
+## Render errors
+
+Outside an `ErrorBoundary`, a render failure shows a built-in fallback with the
+full exception text. Replace it app-wide, per window, or per host; a host's own
+handler wins, and `null` on the window/host falls through to the app default:
+
+```csharp
+ReactorApp.DefaultRenderErrorHandler = e => TextBlock("Something went wrong.");
+ReactorApp.OpenWindow(spec with { RenderErrorHandler = e => SettingsErrorView(e) }, render);
+window.Host.RenderErrorHandler = e => { e.Propagate(); return null; }; // → OnUnhandledException
+```
+
+Return `null` to keep the built-in fallback. If the handler (or the element it
+returns) throws, Reactor shows a neutral message without exception details. The
+handler runs again each time a failing component re-renders, so de-duplicate
+telemetry. If `OnUnhandledException` declines a propagated error, a re-render
+ends the process (WinUI does not raise `Application.UnhandledException` for it).
+
+## Recipe: Command Palette
+
+PowerToys Run-style launcher. See `samples/apps/command-palette-window/`.
+
+```csharp
+new WindowSpec
+{
+    Style = WindowStyle.None,
+    IsMovableByBackground = true,
+    Level = WindowLevel.AlwaysOnTop,
+    CornerStyle = WindowCornerStyle.Rounded,
+    StartPosition = WindowStartPosition.CenterOnCurrent,
+    ShowInTaskbar = false,
+    ShowInSwitcher = false,
+};
+```
+
+## Recipe: Tool Palette
+
+Photoshop-style owned floating palette. See `samples/apps/tool-palette/`.
+
+```csharp
+var main = ReactorApp.OpenWindow(new WindowSpec { Title = "Editor" }, () => new Editor());
+
+ReactorApp.OpenWindow(new WindowSpec
+{
+    Title = "Tools",
+    Owner = main,
+    Style = WindowStyle.ToolWindow,
+    Level = WindowLevel.Floating,
+    CornerStyle = WindowCornerStyle.RoundedSmall,
+}, () => new ToolPalette());
+```
+
+## Recipe: Media Player (aspect-locked)
+
+```csharp
+new WindowSpec
+{
+    Title = "Player",
+    Width = 960,
+    Height = 540,
+    AspectRatio = 16.0 / 9.0,
+};
+
+UseWindow()?.SetAspectRatio(videoWidth / (double)videoHeight);
+UseWindowAspectRatio(16.0 / 9.0);
+```
