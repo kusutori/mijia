@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "Mijia.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Mijia.App (Unpackaged)": {
+      "commandName": "Project"
+    },
+    "Mijia.App (Unpackaged, Devtools)": {
+      "commandName": "Project",
+      "commandLineArgs": "--devtools"
+    }
+  }
+}

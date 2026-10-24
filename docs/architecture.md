@@ -70,4 +70,4 @@ HTTP DTO 留在 Infrastructure 内部，通过 System.Text.Json 源生成读取�
 3. 新增平台会话存储，再从 UI 的组合入口注册服务。多账号使用独立认证服务、会话存储和云端适配器。
 4. 按需求增加独立的场景、统计、订阅接口及服务，不把所有功能堆进 `DeviceService`。
 
-以上两个云端接口当前没有生产实现，也没有用 `NotImplementedException` 或返回虚假成功的方式冒充真实控制能力。测试替身只存在于测试项目。
+以上两个云端接口当前没有生产实现。测试替身位于测试项目；UI 的本地演示适配器位于 `Mijia.App/Services`，界面明确标记演示模式，不混入生产 Infrastructure。详见 [Reactor UI 原型](ui-prototype.md)。

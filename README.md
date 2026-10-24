@@ -1,6 +1,10 @@
 # Mijia
 
-面向后续 UI 的 .NET 11 / C# 15 Core 工程。独立设计模型和接口；不依赖、复制或翻译 Python mijia-api 的实现。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+面向米家设备的 .NET 11 / C# 15 Core 与 Windows UI 工程。独立设计模型和接口；不依赖、复制或翻译 Python mijia-api 的实现。
+
+现已包含基于 **Microsoft.UI.Reactor 0.1.0-preview.16** 的 Windows UI 原型：登录、主页设备网格、设置及本地演示交互。[启动和架构说明](docs/ui-prototype.md)。
 
 ## 当前状态
 
@@ -22,6 +26,7 @@
 ```text
 Mijia.slnx
 src/
+  Mijia.App/          Reactor / WinUI 3 原型与演示适配器
   Mijia.Core/
     Models/          不可变设备、规格、凭证和命令模型
     Results/         Result<T> 和 MijiaError 联合类型
@@ -46,8 +51,9 @@ docs/
 `global.json` 固定到本机已有的 **11.0.100-rc.1.26425.128**，允许同补丁系列 SDK 更新。目标为 `net11.0`，显式设置 `LangVersion=15.0`，不使用 `preview` 语言开关。升级 SDK 时一并更新该文件。
 
 ```powershell
-dotnet build Mijia.slnx -c Release
-dotnet test Mijia.slnx -c Release --no-build
+dotnet build src/Mijia.Core/Mijia.Core.csproj -c Release
+dotnet test tests/Mijia.Core.Tests/Mijia.Core.Tests.csproj -c Release
+mur check src/Mijia.App/Mijia.App.csproj -- -p:Platform=x64
 ```
 
 ## 结果和错误处理
@@ -123,3 +129,7 @@ using var authentication = new AuthenticationService(
 - [MIoT 公共规格服务](https://miot-spec.org/miot-spec-v2/instance)
 - [.NET 11 RC1 C# 15 发布说明](https://github.com/dotnet/core/blob/main/release-notes/11.0/preview/rc1/csharp.md)
 - [C# 原生联合类型参考](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/union)
+
+## 许可证
+
+本项目使用 [MIT 许可证](LICENSE)。第三方依赖遵循各自的许可证。

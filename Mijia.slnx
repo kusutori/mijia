@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Mijia.App/Mijia.App.csproj" />
     <Project Path="src/Mijia.Core/Mijia.Core.csproj" />
     <Project Path="src/Mijia.Infrastructure/Mijia.Infrastructure.csproj" />
   </Folder>
